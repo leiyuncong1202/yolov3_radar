@@ -1,0 +1,6 @@
+classes= 1
+
+valid=data/1114data/testfilename.txt
+names=data/ship.names
+backup = backup/1114data/            # checkpoint的存放位置
+eval = coco                            # 选择mAP的计算方式

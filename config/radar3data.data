@@ -1,0 +1,6 @@
+classes= 1
+train=data/radar3data/train.txt
+valid=data/radar3data/valid.txt
+names=data/radar3data/ship.names
+backup = backup/radar3data/            # checkpoint的存放位置
+eval = coco                            # 选择mAP的计算方式
