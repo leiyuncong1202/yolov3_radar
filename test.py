@@ -4,6 +4,7 @@ from models import *
 from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
+from nms.softnms_torch import softnms_cpu_torch
 
 import os
 import sys
@@ -42,7 +43,9 @@ def evaluate(model, path, iou_thres, conf_thres, nms_thres, img_size, batch_size
         imgs = Variable(imgs.type(Tensor), requires_grad=False)
         with torch.no_grad():
             outputs = model(imgs)    # [8, 10647, 7]
-            outputs = non_max_suppression(outputs, conf_thres=conf_thres, nms_thres=nms_thres)
+            # outputs = origin_nms(outputs, conf_thres=conf_thres, nms_thres=nms_thres)
+            # outputs = non_max_suppression(outputs, conf_thres=conf_thres, nms_thres=nms_thres)
+            outputs = soft_nms_gaussian(outputs)
             # level_index = []
             # for output in outputs:
             #     if output is not None:
