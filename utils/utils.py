@@ -62,6 +62,8 @@ def xywh2xyxy(x):
     y[..., 3] = x[..., 1] + x[..., 3] / 2
     return y
 
+
+def ap_per_class(tp, conf, pred_cls, target_cls):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
     # Arguments
@@ -72,7 +74,6 @@ def xywh2xyxy(x):
     # Returns
         The average precision as computed in py-faster-rcnn.
     """
-def ap_per_class(tp, conf, pred_cls, target_cls):
     # Sort by objectness 按照置信度降序排序
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
@@ -224,13 +225,35 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
 #NMS
 def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
-    """
-    Removes detections with lower object confidence score than 'conf_thres' and performs
-    Non-Maximum Suppression to further filter detections.
-    Returns detections with shape:
-        (x1, y1, x2, y2, object_conf, class_score, class_pred)
-    """
+    prediction[..., :4] = xywh2xyxy(prediction[..., :4])
+    output = [None for _ in range(len(prediction))]
+    for image_i, image_pred in enumerate(prediction):
+        image_pred = image_pred[image_pred[:, 4] >= conf_thres]
+        if not image_pred.size(0):
+            continue
+        score = image_pred[:, 4]
+        # Sort by it      #argsort():返回数组从小到大的索引值
+        image_pred = image_pred[(-score).argsort()]
+        class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
+        detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float(),image_pred[:,-1:]), 1)
+        # Perform non-maximum suppression
+        keep_boxes = []
+        while detections.size(0):
+            large_overlap = bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4]) > nms_thres
+            label_match = detections[0, -2] == detections[:, -2]
+            invalid = large_overlap & label_match
+            #应该去除的那些格子的objectness
+            weights = detections[invalid, 4:5]
+            detections[0, :4] = (weights * detections[invalid, :4]).sum(0) / weights.sum()
+            keep_boxes += [detections[0]]
+            detections = detections[~invalid]
+        if keep_boxes:
+            output[image_i] = torch.stack(keep_boxes)
 
+    return output
+
+
+def origin_nms(prediction, conf_thres=0.5, nms_thres=0.4):
     # From (center x, center y, width, height) to (x1, y1, x2, y2)
     prediction[..., :4] = xywh2xyxy(prediction[..., :4])
     #len(prediction)为batchsize。即对于每张图片清空一次
@@ -242,7 +265,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
         #当一张图片上不含有检测框时
         if not image_pred.size(0):
             continue
-        score = image_pred[:, 4] * image_pred[:, 5:].max(1)[0]             #torch.max()[0]分数[1]索引
+        score = image_pred[:, 4]
         # Sort by it      #argsort():返回数组从小到大的索引值
         image_pred = image_pred[(-score).argsort()]
         class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
@@ -258,14 +281,55 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
             # Indices of boxes with lower confidence scores, large IOUs and matching labels
             #和score最高的box的同一类的box里，IOU超过阈值的去除。invalid中对应元素为1的是应该去除的
             invalid = large_overlap & label_match
-            #应该去除的那些格子的objectness
-            weights = detections[invalid, 4:5]
-            # Merge overlapping bboxes by order of confidence
-            detections[0, :4] = (weights * detections[invalid, :4]).sum(0) / weights.sum()
+            # #应该去除的那些格子的objectness
+            # weights = detections[invalid, 4:5]
+            # # Merge overlapping bboxes by order of confidence
+            # detections[0, :4] = (weights * detections[invalid, :4]).sum(0) / weights.sum()
             keep_boxes += [detections[0]]
             detections = detections[~invalid]
         if keep_boxes:
             output[image_i] = torch.stack(keep_boxes)
+
+    return output
+
+
+def soft_nms_gaussian(prediction, score_threshold=0.001, sigma=0.5, top_k=-1):
+    """Soft NMS implementation.
+    References:
+        https://arxiv.org/abs/1704.04503
+        https://github.com/facebookresearch/Detectron/blob/master/detectron/utils/cython_nms.pyx
+    Args:
+        score_threshold: boxes with scores less than value are not considered.
+        sigma: the parameter in score re-computation.
+            scores[i] = scores[i] * exp(-(iou_i)^2 / simga)
+        top_k: keep top_k results. If k <= 0, keep all the results.
+    """
+    prediction[..., :4] = xywh2xyxy(prediction[..., :4])
+    output = [None for _ in range(len(prediction))]
+    for image_i, image_pred in enumerate(prediction):
+        conf = image_pred[:, 4]
+        class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
+        # 只有一个分类，只参考conf
+        score = conf
+        # # 有多个分类时
+        # score = conf * class_confs
+        image_pred = image_pred[(-score).argsort()]
+        box_scores = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float(), image_pred[:, -1:]), 1)
+        picked_box_scores = []
+        while box_scores.size(0) > 0:
+            max_score_index = torch.argmax(box_scores[:, 4])
+            cur_box_prob = box_scores[max_score_index, :].clone()
+            picked_box_scores.append(cur_box_prob)
+            if len(picked_box_scores) == top_k > 0 or box_scores.size(0) == 1:
+                break
+            cur_box = cur_box_prob[:4]
+            box_scores[max_score_index, :] = box_scores[-1, :]
+            box_scores = box_scores[:-1, :]
+            ious = bbox_iou(cur_box.unsqueeze(0), box_scores[:, :4])
+            box_scores[:, 4] = box_scores[:, 4] * torch.exp(-(ious * ious) / sigma)        # gaussian soft_nms
+            box_scores = box_scores[box_scores[:, 4] > score_threshold, :]
+        if len(picked_box_scores) > 0:
+            output[image_i] = torch.stack(picked_box_scores)
 
     return output
 
