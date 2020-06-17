@@ -1,0 +1,11 @@
+classes= 1
+# 训练时
+# train=data/0421data/train.txt
+# valid=data/0421data/train.txt
+
+#测试时
+valid=data/0421data/valid.txt
+
+names=data/ship.names
+backup = backup/0421data/            # checkpoint的存放位置
+eval = coco                            # 选择mAP的计算方式

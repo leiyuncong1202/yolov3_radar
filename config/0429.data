@@ -1,0 +1,10 @@
+classes= 1
+# 训练时
+train=/home/detection/projects/PyTorch-YOLOv3/data/0429_real/train.txt
+valid=/home/detection/projects/PyTorch-YOLOv3/data/0429_real/valid.txt
+
+#测试时
+# valid=data/0429_real/testfilename.txt
+names=/home/detection/projects/PyTorch-YOLOv3/data/ship.names
+backup = backup/0429_real/            # checkpoint的存放位置
+eval = coco                            # 选择mAP的计算方式

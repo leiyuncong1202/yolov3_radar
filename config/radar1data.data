@@ -1,0 +1,6 @@
+classes= 1
+
+valid=data/radar1data/testfilename.txt
+names=data/ship.names
+backup = backup/radar1data/            # checkpoint的存放位置
+eval = coco                            # 选择mAP的计算方式
