@@ -15,7 +15,7 @@ img_height=416
 
 
 # 将cnn特征向量添加至csv或mat中
-def addFeature(outfile,ROIfile,resultfile,matfile):
+def addFeature(outfile,ROIfile,resultfile,matfile,x_redundancy, y_redundancy):
     imgname = []  # ROI图片的名字，a-b-c-d: a帧数，b列，c行，d所在小图上的ROI索引
     bx = []  # ROI左上角的横坐标,基于一帧的大图
     by = []  # ROI左上角的纵坐标，基于一帧的大图
@@ -35,10 +35,9 @@ def addFeature(outfile,ROIfile,resultfile,matfile):
     for line in lines:
         imgname.append(line.split()[0])
         ################转换为基于大图的坐标########################
-        bx.append([int(line.split()[0].split('-')[1])*img_width+float(line.split()[1])])
-        by.append([int(line.split()[0].split('-')[2])*img_height+float(line.split()[2])])
-        # bx.append([float(line.split()[1])])
-        # by.append([float(line.split()[2])])
+        # print(int(line.split()[0].split('-')[0]),int(line.split()[0].split('-')[1]), img_width, float(line.split()[1]))
+        bx.append([float(line.split()[1])])
+        by.append([float(line.split()[2])])
         w.append([float(line.split()[5])])
         h.append([float(line.split()[6])])
         r.append([float(line.split()[7])])
@@ -88,39 +87,39 @@ def addFeature(outfile,ROIfile,resultfile,matfile):
 
 
 
-def concat(detpath, ROIfile, csvpath, matpath):
+def concat(detpath, ROIfile, csvpath, matpath, x_redundancy, y_redundancy):
     if os.path.exists(csvpath):
         shutil.rmtree(csvpath)
-        os.mkdir(csvpath)
+    os.mkdir(csvpath)
     if os.path.exists(matpath):
         shutil.rmtree(matpath)
-        os.mkdir(matpath)
+    os.mkdir(matpath)
     print("\n")
     print("*" * 50)
     print("开始合并检测文件和特征文件")
     print("*" * 50)
 
-    m = 64
+    m = 8
     filenames=os.listdir(detpath)
     print(len(filenames))
     n = int(math.ceil(len(filenames) / float(m)))
     pool = multiprocessing.Pool(processes=m)
     for i in range(0, len(filenames), n):
-        pool.apply_async(mutliprocess, (filenames[i:i + n],detpath,csvpath,matpath,ROIfile,))
+        pool.apply_async(mutliprocess, (filenames[i:i + n],detpath,csvpath,matpath,ROIfile,x_redundancy,y_redundancy))
 
     pool.close()
     pool.join()
 
 
 
-def mutliprocess(msg,detpath,csvpath,matpath,ROIfile):
+def mutliprocess(msg,detpath,csvpath,matpath,ROIfile,x_redundancy,y_redundancy):
     # print(len(msg))
     for i in msg:
         # print("开始合并第%s帧图片" % i)  # 第几帧图片
         outfile = detpath + str(i)
         csvfile = csvpath + str(i).split('.')[0] + '.csv'  # 最终csv形式
         matfile = matpath + str(i).split('.')[0] + '.mat'  # 最终mat形式
-        addFeature(outfile, ROIfile, csvfile, matfile)
+        addFeature(outfile, ROIfile, csvfile, matfile,x_redundancy,y_redundancy)
 
 
 
