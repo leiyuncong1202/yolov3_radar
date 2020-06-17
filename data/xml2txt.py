@@ -3,13 +3,21 @@ import sys
 import xml.etree.ElementTree as ET
 import glob
 
-# 图片尺寸
-width = 416
-height =416
+# # 图片尺寸
+# width = 416
+# height =416
 
-def xml_to_txt(indir,outdir):
+def xml_to_txt(indir,outdir,clsText):
+    clsDict = {}
+    i=0
+    with open(clsText) as f:
+        fLines=f.readlines()
+    for fl in fLines:
+        clsDict[fl.strip()]=i
+        i+=1
+    # print(clsDict)          # 打印类别名称
 
-    # os.chdir(indir)
+
     # annotations = os.listdir('.')
     # print(annotations)
     annotations = glob.glob(indir+'/*.xml')
@@ -27,9 +35,17 @@ def xml_to_txt(indir,outdir):
         tree=ET.parse(in_file)
         root = tree.getroot()
 
+        img_size=root.find('size')
+        width=float(img_size.find('width').text)
+        height=float(img_size.find('height').text)
+        # 多分类时，从xml读取类名
         for obj in root.iter('object'):
                 current = list()
-                # name = obj.find('name').text
+                clsName = obj.find('name').text
+                if(clsName in clsDict):
+                    label_idx_x=str(clsDict[clsName])
+        # 二分类时，直接指定类名
+        # label_idx_x='0'
 
                 xmlbox = obj.find('bndbox')
                 xmin = float(xmlbox.find('xmin').text)
@@ -37,7 +53,6 @@ def xml_to_txt(indir,outdir):
                 ymin = float(xmlbox.find('ymin').text)
                 ymax = float(xmlbox.find('ymax').text)
 
-                label_idx_x='0'
                 x_center=((xmin+xmax)/2)/width
                 y_center=((ymin+ymax)/2)/height
                 w = (xmax-xmin)/width
@@ -45,7 +60,8 @@ def xml_to_txt(indir,outdir):
                 f_w.write(label_idx_x+' '+str(x_center)+' '+str(y_center)+' '+str(w)+' '+str(h)+'\n')
                 
 
-indir='/home/detection/PyTorch-YOLOv3/data/1114data/Annotations'   #xml目录
-outdir='/home/detection/PyTorch-YOLOv3/data/1114data/labels'  #txt目录
+indir='/home/detection/projects/PyTorch-YOLOv3/data/0601_cv_ship/Annotations'   #xml目录
+outdir='/home/detection/projects/PyTorch-YOLOv3/data/0601_cv_ship/labels'  #txt目录
+clsText='/home/detection/projects/PyTorch-YOLOv3/data/multi_ship.names'
 
-xml_to_txt(indir,outdir)
+xml_to_txt(indir,outdir,clsText)
