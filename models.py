@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 
+
 from utils.parse_config import *
 from utils.utils import build_targets, to_cpu, non_max_suppression
 
@@ -173,10 +174,10 @@ class YOLOLayer(nn.Module):
             .permute(0, 1, 3, 4, 2)
             .contiguous()
         )
-        #########################################添加层级索引#############################################
-        level_index = int(grid_size/13)
-        level_index_pad=(0,1)
-        prediction = F.pad(prediction,level_index_pad,value=level_index)
+        # #########################################添加层级索引#############################################
+        # level_index = int(grid_size/13)
+        # level_index_pad=(0,1)          # 左边不加维度，右边加一个维度
+        # prediction = F.pad(prediction,level_index_pad,value=level_index)
 
 
         # Get outputs
@@ -186,8 +187,9 @@ class YOLOLayer(nn.Module):
         h = prediction[..., 3]  # Height
         pred_conf = torch.sigmoid(prediction[..., 4])  # Conf
         #num_class个
-        pred_cls = torch.sigmoid(prediction[..., 5:-1])  # Cls pred.
-        pred_level=prediction[..., -1]
+        pred_cls = torch.sigmoid(prediction[..., 5:])  # Cls pred.
+        # pred_cls = torch.sigmoid(prediction[..., 5:-1])  # 层级索引时的Cls pred.
+        # pred_level=prediction[..., -1]   #层级索引
 
         # If grid size does not match current we compute new offsets
         #如正中间的格子为（6,6）
@@ -208,7 +210,7 @@ class YOLOLayer(nn.Module):
                 pred_boxes.view(num_samples, -1, 4) * self.stride,
                 pred_conf.view(num_samples, -1, 1),
                 pred_cls.view(num_samples, -1, self.num_classes),
-                pred_level.view(num_samples, -1, 1),
+                # pred_level.view(num_samples, -1, 1),
             ),
             -1,
         )
@@ -224,28 +226,30 @@ class YOLOLayer(nn.Module):
                 ignore_thres=self.ignore_thres,
             )
 
-            # # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-            # #obj_mask 每个cell处对应一个最好的anchor
-            # loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
-            # loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-            # loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-            # loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
-            # loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
-            # loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
-            # loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
-            # loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
-            # total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-
-            ############去掉分类损失loss_cls。定位损失使用smoothL1#############################
-            loss_x = self.smoothL1_loss(x[obj_mask], tx[obj_mask])
-            loss_y = self.smoothL1_loss(y[obj_mask], ty[obj_mask])
-            loss_w = self.smoothL1_loss(w[obj_mask], tw[obj_mask])
-            loss_h = self.smoothL1_loss(h[obj_mask], th[obj_mask])
+            # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
+            #obj_mask 每个cell处对应一个最好的anchor
+            loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
+            loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
+            loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
+            loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
             loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
             loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
             loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
             loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
-            total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf
+            # 去掉分类损失
+            # total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf
+            total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
+
+            # ############去掉分类损失loss_cls。定位损失使用smoothL1#############################
+            # loss_x = self.smoothL1_loss(x[obj_mask], tx[obj_mask])
+            # loss_y = self.smoothL1_loss(y[obj_mask], ty[obj_mask])
+            # loss_w = self.smoothL1_loss(w[obj_mask], tw[obj_mask])
+            # loss_h = self.smoothL1_loss(h[obj_mask], th[obj_mask])
+            # loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
+            # loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
+            # loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
+            # loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
+            # total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf
 
             # Metrics
             cls_acc = 100 * class_mask[obj_mask].mean()

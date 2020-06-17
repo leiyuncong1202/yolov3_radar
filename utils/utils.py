@@ -11,6 +11,45 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 
+# 读取检测结果CSV文件，位于det_result文件夹
+def readcsv(path,img_size,x_redundancy, y_redundancy):
+   img_width=img_size
+   img_height=img_size
+   imgname = []  # ROI图片的名字，a-b-c-d: a帧数，b列，c行，d所在小图上的ROI索引
+   x1 = []  # 左上角的横坐标,基于一帧的大图
+   y1 = []  # 左上角的纵坐标,基于一帧的大图
+   x2 = []  # 右下角的横坐标,基于一帧的大图
+   y2 = []  # 右下角的纵坐标,基于一帧的大图
+   w = []  # ROI宽，基于一帧的大图
+   h = []  # ROI高，基于一帧的大图
+   r = []  # 置信度
+   fr = []  # 帧数
+   f = open(path)
+   lines = f.readlines()
+   for line in lines:
+       imgname.append(line.split()[0])
+       ################转换为基于大图的坐标########################
+       # print(int(line.split()[0].split('-')[0]),int(line.split()[0].split('-')[1]), img_width, float(line.split()[1]))
+       x_index = int(line.split()[0].split('-')[2])
+       y_index = int(line.split()[0].split('-')[1])
+       x1.append([x_index * img_width - (x_index) * x_redundancy + float(line.split()[1])])
+       y1.append([y_index * img_height - (y_index) * y_redundancy + float(line.split()[2])])
+       x2.append([x_index * img_width - (x_index) * x_redundancy + float(line.split()[1])+float(line.split()[5])])
+       y2.append([y_index * img_height - (y_index) * y_redundancy + float(line.split()[2])+float(line.split()[6])])
+       w.append([float(line.split()[5])])
+       h.append([float(line.split()[6])])
+       r.append([float(line.split()[7])])
+       fr.append([float(line.split()[8])])
+
+       # x1.append([int(line.split()[0].split('-')[1]) * img_size + float(line.split()[1])])
+       # y1.append([int(line.split()[0].split('-')[2]) * img_size + float(line.split()[2])])
+       # x2.append([int(line.split()[0].split('-')[1]) * img_size + float(line.split()[3])])
+       # y2.append([int(line.split()[0].split('-')[2]) * img_size + float(line.split()[4])])
+   f.close()
+   detections = torch.cat((torch.Tensor(x1), torch.Tensor(y1), torch.Tensor(x2), torch.Tensor(y2), torch.Tensor(r), torch.Tensor(fr)),1)
+   return detections
+
+
 def to_cpu(tensor):
     return tensor.detach().cpu()
 
@@ -21,7 +60,7 @@ def load_classes(path):
     """
     fp = open(path, "r")
     # fp.read().split("\n"):    ['ship', 'ship2333', '']
-    names = fp.read().split("\n")[:-1]
+    names = fp.read().split("\n")
     return names
 
 
@@ -87,7 +126,8 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
         i = pred_cls == c
         n_gt = (target_cls == c).sum()  # Number of ground truth objects
         n_p = i.sum()  # Number of predicted objects
-        print('n_p ',n_p)
+        print('n_p: ',n_p)
+        print('n_gt: ',n_gt)
         if n_p == 0 and n_gt == 0:
             continue
         elif n_p == 0 or n_gt == 0:
@@ -108,8 +148,13 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
             ap.append(compute_ap(recall_curve, precision_curve))
     # Compute F1 score (harmonic mean of precision and recall)
     p, r, ap = np.array(p), np.array(r), np.array(ap)
+    pd=r
+    pf=1-p
     f1 = 2 * p * r / (p + r + 1e-16)
-
+    print('precision: ',p)
+    print('recall: ',r)
+    print('ap: ',ap)
+    print('f1',f1)
     return p, r, ap, f1, unique_classes.astype("int32")
 
 
@@ -129,11 +174,11 @@ def compute_ap(recall, precision):
     # compute the precision envelope
     for i in range(mpre.size - 1, 0, -1):
         mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
-    plt.plot(mrec,mpre)      # 绘制PR曲线
-    plt.xlabel('recall')
-    plt.ylabel('precision')
-    plt.show()
-    plt.savefig("PR.png")
+    # plt.plot(mrec,mpre)      # 绘制PR曲线
+    # plt.xlabel('recall')
+    # plt.ylabel('precision')
+    # plt.show()
+    # plt.savefig("PR.png")
 
     # to calculate area under PR curve, look for points where X axis (recall) changes value
     i = np.where(mrec[1:] != mrec[:-1])[0]       # np.where()的返回值为元组形式。元组的每个元素表示每个维度上的坐标
@@ -153,7 +198,8 @@ def get_batch_statistics(outputs, targets, iou_threshold):
         output = outputs[sample_i]
         pred_boxes = output[:, :4]
         pred_scores = output[:, 4]
-        pred_labels = output[:, -2]
+        # pred_labels = output[:, -2]  # 层级索引
+        pred_labels = output[:, -1]
 
         true_positives = np.zeros(pred_boxes.shape[0])  # TP: IoU>0.5的检测框数量（同一Ground Truth只计算一次）
         annotations = targets[targets[:, 0] == sample_i][:, 1:]   # 一张图片上所有的target信息：[cls,x,y,x,y]
@@ -224,23 +270,26 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
 
 #NMS
-def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
+def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.35):
     prediction[..., :4] = xywh2xyxy(prediction[..., :4])
     output = [None for _ in range(len(prediction))]
     for image_i, image_pred in enumerate(prediction):
         image_pred = image_pred[image_pred[:, 4] >= conf_thres]
         if not image_pred.size(0):
             continue
-        score = image_pred[:, 4]
+        score = image_pred[:, 4]*image_pred[:,5:].max(1)[0]
         # Sort by it      #argsort():返回数组从小到大的索引值
         image_pred = image_pred[(-score).argsort()]
-        class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
-        detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float(),image_pred[:,-1:]), 1)
+        class_confs, class_preds = image_pred[:, 5:].max(1, keepdim=True)
+        # class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)      # 层级索引
+        # detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float(),image_pred[:,-1:]), 1)  # 层级索引
+        detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float()), 1)
         # Perform non-maximum suppression
         keep_boxes = []
         while detections.size(0):
             large_overlap = bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4]) > nms_thres
-            label_match = detections[0, -2] == detections[:, -2]
+            # label_match = detections[0, -2] == detections[:, -2]     # 层级索引
+            label_match = detections[0, -1] == detections[:, -1]
             invalid = large_overlap & label_match
             #应该去除的那些格子的objectness
             weights = detections[invalid, 4:5]
@@ -250,6 +299,28 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
         if keep_boxes:
             output[image_i] = torch.stack(keep_boxes)
 
+    return output
+
+
+# 对于一帧图片做全局NMS，无conf筛选
+def global_nms(image_pred,nms_thres=0.35):
+    # print(image_pred[0])
+    output = [None for _ in range(len(image_pred))]
+    score = image_pred[:, 4]*image_pred[:,5:].max(1)[0]
+    # Sort by it      #argsort():返回数组从小到大的索引值
+    image_pred = image_pred[(-score).argsort()]
+    detections = image_pred
+    # Perform non-maximum suppression
+    keep_boxes = []
+    while detections.size(0):
+        large_overlap = bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4]) > nms_thres
+        # label_match = detections[0, -2] == detections[:, -2]
+        # invalid = large_overlap & label_match
+        keep_boxes += [detections[0]]
+        detections = detections[~large_overlap]
+    if keep_boxes:
+        output = torch.stack(keep_boxes)
+    # print(output[0])
     return output
 
 
@@ -265,7 +336,7 @@ def origin_nms(prediction, conf_thres=0.5, nms_thres=0.4):
         #当一张图片上不含有检测框时
         if not image_pred.size(0):
             continue
-        score = image_pred[:, 4]
+        score = image_pred[:, 4]*image_pred[:,5:].max(1)[0]
         # Sort by it      #argsort():返回数组从小到大的索引值
         image_pred = image_pred[(-score).argsort()]
         class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
@@ -310,7 +381,7 @@ def soft_nms_gaussian(prediction, score_threshold=0.001, sigma=0.5, top_k=-1):
         conf = image_pred[:, 4]
         class_confs, class_preds = image_pred[:, 5:-1].max(1, keepdim=True)
         # 只有一个分类，只参考conf
-        score = conf
+        score = conf * image_pred[:,5:].max(1)[0]
         # # 有多个分类时
         # score = conf * class_confs
         image_pred = image_pred[(-score).argsort()]
@@ -405,3 +476,5 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
 
     tconf = obj_mask.float()
     return iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf
+
+

@@ -194,10 +194,10 @@ def compute_centroids(label_path,n_anchors,loss_convergence,grid_size,iterations
         print(centroid.w * grid_size, centroid.h * grid_size)
 
 
-label_path = "/raid/pengchong_data/Data/Lists/paul_train.txt"
-n_anchors = 5
+label_path = "/home/detection/projects/PyTorch-YOLOv3/data/0421data/train.txt"
+n_anchors = 3
 loss_convergence = 1e-6
-grid_size = 13
+grid_size = 52
 iterations_num = 100
 plus = 0
 compute_centroids(label_path,n_anchors,loss_convergence,grid_size,iterations_num,plus)

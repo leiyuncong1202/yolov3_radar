@@ -24,17 +24,17 @@ import torch.optim as optim
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=20, help="number of epochs")
+    parser.add_argument("--epochs", type=int, default=30, help="number of epochs")
     parser.add_argument("--batch_size", type=int, default=8, help="size of each image batch")
     parser.add_argument("--gradient_accumulations", type=int, default=2, help="number of gradient accums before step")
-    parser.add_argument("--model_def", type=str, default="config/yolov3-tiny-mod.cfg", help="path to model definition file")
-    parser.add_argument("--data_config", type=str, default="config/radar3data.data", help="path to data config file")
-    parser.add_argument("--pretrained_weights", type=str, default="weights/yolov3-tiny_best.weights",help="if specified starts from checkpoint model")
-    parser.add_argument("--checkpoints_dir", type=str, default="checkpoints_tiny_weights_s", help="path to save weight file")
+    parser.add_argument("--model_def", type=str, default="config/yolov3_cv_multi.cfg", help="path to model definition file")
+    parser.add_argument("--data_config", type=str, default="config/0601.data", help="path to data config file")
+    parser.add_argument("--pretrained_weights", type=str, default="/home/detection/projects/PyTorch-YOLOv3/weights/yolov3_cv_multi_0601_cv.pth",help="if specified starts from checkpoint model")
+    parser.add_argument("--checkpoints_dir", type=str, default="checkpoints_YOLOv3", help="path to save weight file")
 
-    parser.add_argument("--n_gpu", type=int, default=4, help="number of gpu threads to use during batch generation")
+    parser.add_argument("--n_gpu", type=int, default=2, help="number of gpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
-    parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")
+    parser.add_argument("--checkpoint_interval", type=int, default=1, help="interval between saving model weights")                                  
     parser.add_argument("--evaluation_interval", type=int, default=1, help="interval evaluations on validation set")
     parser.add_argument("--compute_map", default=True, help="if True computes mAP every tenth batch")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
@@ -59,7 +59,24 @@ if __name__ == "__main__":
     # If specified we start from checkpoint
     if opt.pretrained_weights:
         if opt.pretrained_weights.endswith(".pth"):
+            # 加载所有层的权重
             model.load_state_dict(torch.load(opt.pretrained_weights))
+
+            # # 加载分类层之前的所有层权重
+            # pretrained_dict = torch.load(opt.pretrained_weights)
+            # model_dict=model.state_dict()
+            # # 当新旧键名不一样时，可以用这句更新
+            # # pretrained_dict={k:v for k,v in pretrained_dict.items() if k in model_dict}
+            # del pretrained_dict['module_list.81.conv_81.weight']
+            # del pretrained_dict['module_list.81.conv_81.bias']
+            # del pretrained_dict['module_list.93.conv_93.weight']
+            # del pretrained_dict['module_list.93.conv_93.bias']
+            # del pretrained_dict['module_list.105.conv_105.weight']
+            # del pretrained_dict['module_list.105.conv_105.bias']
+            # pretrained_dict.update(model_dict)   # 有相同键时，以pretrained_dict为准
+            # # for key, param in pretrained_dict.items():
+            # #     print(key)
+            # model.load_state_dict(pretrained_dict)
         else:
             model.load_darknet_weights(opt.pretrained_weights)
             print(model)
@@ -75,6 +92,7 @@ if __name__ == "__main__":
         collate_fn=dataset.collate_fn,
     )
 
+    # 按照config中的参数配置
     optimizer = torch.optim.Adam(model.parameters(), lr=float(model.hyperparams['learning_rate']), weight_decay=float(model.hyperparams['decay']))
 
     metrics = [
@@ -102,7 +120,6 @@ if __name__ == "__main__":
 
             imgs = Variable(imgs.to(device))
             targets = Variable(targets.to(device), requires_grad=False)
-
             loss, outputs = model(imgs, targets)
             loss.backward()
 
@@ -142,6 +159,12 @@ if __name__ == "__main__":
 
             model.seen += imgs.size(0)
 
+
+        if epoch % opt.checkpoint_interval == 0:
+            torch.save(model.state_dict(), f"{opt.checkpoints_dir}/yolov3_ckpt_%d.pth" % epoch)
+            # torch.save(model, f"{opt.checkpoints_dir}/yolov3_ckpt_%d.pth" % epoch)
+
+            
         if epoch % opt.evaluation_interval == 0:
             print("\n---- Evaluating Model ----")
             # Evaluate the model on the validation set
@@ -149,11 +172,12 @@ if __name__ == "__main__":
                 model,
                 path=valid_path,
                 iou_thres=0.5,
-                conf_thres=0.5,
-                nms_thres=0.45,
+                conf_thres=0.1,
+                nms_thres=0.5,
                 img_size=opt.img_size,
                 batch_size=8,
             )
+            print(precision)
             evaluation_metrics = [
                 ("val_precision", precision.mean()),
                 ("val_recall", recall.mean()),
@@ -164,10 +188,11 @@ if __name__ == "__main__":
 
             # Print class APs and mAP
             ap_table = [["Index", "Class name", "AP"]]
+            # print(ap_class, class_names)
             for i, c in enumerate(ap_class):
                 ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
             print(AsciiTable(ap_table).table)
             print(f"---- mAP {AP.mean()}")
 
-        if epoch % opt.checkpoint_interval == 0:
-            torch.save(model.state_dict(), f"{opt.checkpoints_dir}/yolov3_ckpt_%d.pth" % epoch)
+
+
