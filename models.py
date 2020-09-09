@@ -1,11 +1,11 @@
 # YOLO默认的正方形图片检测
 from __future__ import division
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-import numpy as np
 
 from utils.parse_config import *
 from utils.utils import build_targets, to_cpu, non_max_suppression
