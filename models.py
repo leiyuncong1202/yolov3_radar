@@ -1,3 +1,4 @@
+# YOLO默认的正方形图片检测
 from __future__ import division
 
 import torch
